@@ -1,0 +1,5 @@
+.DS_Store
+*aws_params.yml
+node_modules
+.serverless
+.env

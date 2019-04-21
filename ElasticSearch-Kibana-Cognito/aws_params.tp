@@ -1,0 +1,18 @@
+region: <AWS Region>
+stage: <Stage>
+profile: <AWS Profile>
+DEPLOYMENT_S3_BUCKET: <Deployment Bucket>
+ACCOUNT_ID: <AWS Account ID>
+
+## Elastic Search Settings
+ES_DOMAIN_NAME: assignmentesss30
+ES_ASSIGNMENT_INDEX: assignemntlocations
+ES_INSTANCE_TYPE: t2.small.elasticsearch
+ES_VERSION: 6.4
+ES_INSTANCE_VOLUME_SIZE: 10 #Size in GB
+
+## Cognito Settings
+## user pool domain name should not be more than 28 chars
+USER_POOL_DOMAIN: 'userpool-test-01-09930'
+IdentityPoolName: "KibanaIDPool30"
+UserPoolName: "KibanaUsers30"

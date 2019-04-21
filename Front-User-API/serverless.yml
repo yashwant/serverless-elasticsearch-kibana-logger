@@ -1,0 +1,107 @@
+service: assignments-app-api
+
+plugins:
+  - serverless-webpack
+  - serverless-offline
+
+provider:
+  name: aws
+  runtime: nodejs8.10
+  profile: ${file(./aws_params.yml):profile}
+  stage: ${file(./aws_params.yml):stage}
+  region: ${file(./aws_params.yml):region}
+  # deploymentBucket: ${file(./aws_params.yml):DEPLOYMENT_S3_BUCKET}
+  environment:
+    tableName: ${self:custom.tableName}
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:DescribeTable
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+      Resource:
+        - "Fn::GetAtt": [ AssignmentsTable, Arn ]
+    -
+      Effect: Allow
+      Action: 
+        - 'es:*'
+      Resource: 
+        - 'arn:aws:es:${self:provider.region}:${file(./aws_params.yml):ACCOUNT_ID}:domain/${file(./aws_params.yml):ES_DOMAIN_NAME}'
+        - 'arn:aws:es:${self:provider.region}:${file(./aws_params.yml):ACCOUNT_ID}:domain/${file(./aws_params.yml):ES_DOMAIN_NAME}/*'
+
+functions:
+  create:
+    handler: src/assignment-api/create.main
+    events:
+      - http:
+          path: assignments
+          method: post
+          cors: true
+          # authorizer: aws_iam
+  get:
+    handler: src/assignment-api/get.main
+    events:
+      - http:
+          path: assignments/{id}
+          method: get
+          cors: true
+          # authorizer: aws_iam
+  list:
+    handler: src/assignment-api/list.main
+    events:
+      - http:
+          path: assignments
+          method: get
+          cors: true
+          # authorizer: aws_iam
+  update:
+    handler: src/assignment-api/update.main
+    events:
+      - http:
+          path: assignments/{id}
+          method: put
+          cors: true
+          # authorizer: aws_iam
+  delete:
+    handler: src/assignment-api/delete.main
+    events:
+      - http:
+          path: assignments/{id}
+          method: delete
+          cors: true
+          # authorizer: aws_iam
+
+  db_stream_processor:
+    handler: src/dynamodb-stream-processor/push_to_es.main
+    environment:
+      ES_ASSIGNMENT_INDEX: ${file(./aws_params.yml):ES_ASSIGNMENT_INDEX}
+      elasticRegion: ${self:provider.region}
+      elasticURL: ${file(./aws_params.yml):ES_DOMAIN_ENDPOINT}
+    events:
+      - stream:
+          arn: !GetAtt AssignmentsTable.StreamArn
+          batchSize: 100
+          type: dynamodb
+          startingPosition: LATEST
+          enabled: true
+
+resources:
+  - ${file(resources/api-gateway-errors.yml)}
+  - ${file(resources/dynamodb-table.yml)}
+
+custom:
+  stage: ${opt:stage, self:provider.stage}
+  tableName: ${self:custom.stage}-assignments
+  tableThroughputs:
+    prod: 5
+    default: 1
+  tableThroughput: ${self:custom.tableThroughputs.${self:custom.stage}, self:custom.tableThroughputs.default}
+  webpack:
+    webpackConfig: ./webpack.config.js
+    includeModules: true
+    packager: 'npm'

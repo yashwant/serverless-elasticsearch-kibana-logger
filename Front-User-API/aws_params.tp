@@ -1,0 +1,10 @@
+region: us-east-1
+stage: dev
+profile: <aws profile>
+DEPLOYMENT_S3_BUCKET: <deployment bucket>
+ACCOUNT_ID: <AWS Account id>
+
+## Elastic Search Settings
+ES_DOMAIN_NAME: <ES domain name>
+ES_ASSIGNMENT_INDEX: <Assignment index string>
+ES_DOMAIN_ENDPOINT: <ES Domain endpoint url>

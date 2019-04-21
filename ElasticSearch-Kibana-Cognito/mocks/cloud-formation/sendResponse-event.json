@@ -1,0 +1,13 @@
+{
+  "ResponseStatus": "FAILED",
+  "StackId": "<StackId>",
+  "RequestId": "<RequestId>",
+  "LogicalResourceId": "<LogicalResourceId>",
+  "ResponseData": "JSON String",
+  "ResponseURL": "<URL>",
+  "requestContext": {
+    "identity": {
+      "cognitoIdentityId": "USER-SUB-1234"
+    }
+  }
+}

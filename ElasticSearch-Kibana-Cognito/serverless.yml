@@ -1,0 +1,334 @@
+service: elastic-search
+provider:
+  name: aws
+  cfLogs: true
+  runtime: nodejs8.10
+  profile: ${file(./aws_params.yml):profile}
+  stage: ${file(./aws_params.yml):stage}
+  region: ${file(./aws_params.yml):region}
+  iamRoleStatements:
+
+    ## ES Permissions
+    - Effect: Allow
+      Action:
+        - es:*
+      Resource: "arn:aws:es:${file(./aws_params.yml):region}:${file(./aws_params.yml):ACCOUNT_ID}:domain/${file(./aws_params.yml):ES_DOMAIN_NAME}/*"
+
+    ## UpdateUserPoolClient
+    - Effect: Allow
+      Action: 'cognito-idp:UpdateUserPoolClient'
+      Resource: 'arn:aws:cognito-idp:*:*:userpool/*'
+
+    ## ManageUserPoolDomain
+    -
+      Effect: Allow
+      Action: 'cognito-idp:CreateUserPoolDomain'
+      Resource: 'arn:aws:cognito-idp:*:*:userpool/*'
+    -
+      Effect: Allow
+      Action: 'cognito-idp:DeleteUserPoolDomain'
+      Resource: 'arn:aws:cognito-idp:*:*:userpool/*'
+    -
+      Effect: Allow
+      Action: 'cognito-idp:DescribeUserPoolDomain'
+      Resource: '*'
+
+    ## Assume role
+    -
+      Effect: Allow
+      Action: 'sts:AssumeRole'
+      Resource: 'arn:aws:lambda:*:*:function:*'
+
+    ## Invoke Lambda Function
+    -
+      Effect: Allow
+      Action: 'lambda:InvokeFunction'
+      Resource: 'arn:aws:lambda:*:*:function:*'
+
+    ## Update ES Domain Config
+    -
+      Effect: Allow
+      Action: 
+        - 'es:UpdateElasticsearchDomainConfig'
+      Resource: 'arn:aws:es:${self:provider.region}:${file(./aws_params.yml):ACCOUNT_ID}:domain/${file(./aws_params.yml):ES_DOMAIN_NAME}'
+
+    -
+      Effect: Allow
+      Action: 
+        - "cognito-idp:DescribeUserPool"
+        - "cognito-idp:CreateUserPoolClient"
+        - "cognito-idp:DeleteUserPoolClient"
+        - "cognito-idp:DescribeUserPoolClient"
+        - "cognito-idp:AdminInitiateAuth"
+        - "cognito-idp:AdminUserGlobalSignOut"
+        - "cognito-idp:ListUserPoolClients"
+        - "cognito-identity:DescribeIdentityPool"
+        - "cognito-identity:UpdateIdentityPool"
+        - "cognito-identity:SetIdentityPoolRoles"
+        - "cognito-identity:GetIdentityPoolRoles"
+        - "iam:GetRole"
+        - "iam:PassRole"
+        - "iam:CreateRole"
+        - "iam:AttachRolePolicy"
+        - "ec2:DescribeVpcs"
+        - "cognito-identity:ListIdentityPools"
+        - "cognito-idp:ListUserPools"
+      Resource: '*'
+
+    ## Update ES Domain Config pass role
+    -
+      Effect: Allow
+      Action: 
+        - 'iam:PassRole'
+      Resource: 'arn:aws:iam::${file(./aws_params.yml):ACCOUNT_ID}:role/CognitoAccessForAmazonESearch'
+
+functions:
+  CFSendResponse:
+    handler: src/cloud-formation/sendResponse.handler
+  CFUserPoolClientSettings:
+    handler: src/cognito/cognitoUserPoolClientSettings.handler
+    DependsOn: 
+      - "CFSendResponseLambdaFunction"
+      - !Ref ElasticSearchInstance
+
+    environment:
+      CFSendResponse: ${self:service}-${self:provider.stage}-CFSendResponse
+      elasticURL:
+        Fn::GetAtt: [ ElasticSearchInstance , DomainEndpoint ]
+
+  CFUserPoolDomain:
+    handler: src/cognito/cognitoUserPoolDomain.handler
+    DependsOn: "CFSendResponseLambdaFunction"
+    environment:
+      CFSendResponse: ${self:service}-${self:provider.stage}-CFSendResponse
+  CFESDomainConfig:
+    handler: src/elastic-search/updateElasticsearchDomainConfig.handler
+    DependsOn: 
+      - "CFSendResponseLambdaFunction"
+      - !Ref ElasticSearchInstance
+    environment:
+      CFSendResponse: ${self:service}-${self:provider.stage}-CFSendResponse
+      ES_DOMAIN_NAME: ${file(./aws_params.yml):ES_DOMAIN_NAME}
+      elasticURL:
+        Fn::GetAtt: [ ElasticSearchInstance , DomainEndpoint ]
+
+  db_stream_processor:
+    handler: handler.main
+    environment:
+      ES_ASSIGNMENT_INDEX: ${file(./aws_params.yml):ES_ASSIGNMENT_INDEX}
+      elasticRegion: ${self:provider.region}
+      elasticURL:
+        Fn::GetAtt: [ ElasticSearchInstance , DomainEndpoint ]
+
+  test_processor:
+    handler: handler_test.main
+    environment:
+      ES_ASSIGNMENT_INDEX: ${file(./aws_params.yml):ES_ASSIGNMENT_INDEX}
+      elasticRegion: ${self:provider.region}
+      elasticURL:
+        Fn::GetAtt: [ ElasticSearchInstance , DomainEndpoint ]
+    events:
+      - http:
+          path: assignments/push
+          method: get
+          cors: true
+
+resources:
+  Resources:
+    ElasticSearchInstance:
+      Type: AWS::Elasticsearch::Domain
+      Properties:
+        DomainName: ${file(./aws_params.yml):ES_DOMAIN_NAME}
+        # AccessPolicies: JSON object
+        EBSOptions:
+          EBSEnabled: true
+          VolumeType: gp2
+          #within free tier
+          VolumeSize: ${file(./aws_params.yml):ES_INSTANCE_VOLUME_SIZE}
+        ElasticsearchClusterConfig:
+          #T2.Small is within free tier
+          InstanceType: ${file(./aws_params.yml):ES_INSTANCE_TYPE}
+          InstanceCount: 1
+          DedicatedMasterEnabled: false
+          ZoneAwarenessEnabled: false
+        ElasticsearchVersion: ${file(./aws_params.yml):ES_VERSION}
+        # Tags:
+        #   - Resource Tag
+        # VPCOptions: 
+        #   VPCOptions
+        AccessPolicies: 
+          Version: "2012-10-17"
+          Statement:
+            - Effect: "Allow"
+              Principal:
+                Federated: !Sub "cognito-identity.amazonaws.com"
+              Action: "es:*"
+              Resource: !Sub "arn:aws:es:${file(./aws_params.yml):region}:${file(./aws_params.yml):ACCOUNT_ID}:domain/${file(./aws_params.yml):ES_DOMAIN_NAME}/*"
+
+    UserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: ${file(./aws_params.yml):UserPoolName}
+        AdminCreateUserConfig:
+          AllowAdminCreateUserOnly: true
+        UsernameAttributes:
+          - email
+        AutoVerifiedAttributes:
+          - email
+        Policies:
+          PasswordPolicy:
+            MinimumLength: 8
+        Schema:
+          - Name: email
+            AttributeDataType: String
+            DeveloperOnlyAttribute: false
+            Mutable: true
+            Required: true
+
+    IdentityPool:
+      Type: AWS::Cognito::IdentityPool
+      Properties:
+        IdentityPoolName: ${file(./aws_params.yml):IdentityPoolName}
+        AllowUnauthenticatedIdentities: false
+        # CognitoIdentityProviders:
+        #   - ClientId: !Ref UserPoolClientFirst
+        #     ProviderName: ""
+
+    AuthenticatedPolicy:
+      Type: AWS::IAM::ManagedPolicy
+      Properties:
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: "Allow"
+              Action:
+                - "es:ESHttp*"
+              Resource:
+                - "*"
+                
+    AuthenticatedRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: "sts:AssumeRoleWithWebIdentity"
+              Principal:
+                Federated: cognito-identity.amazonaws.com
+              Condition:
+                StringEquals:
+                  "cognito-identity.amazonaws.com:aud": !Ref IdentityPool
+                ForAnyValue:StringLike:
+                  "cognito-identity.amazonaws.com:amr": authenticated
+        ManagedPolicyArns: 
+          - !Ref AuthenticatedPolicy
+    
+    CognitoAccessForAmazonESPolicy:
+      Type: AWS::IAM::ManagedPolicy
+      Properties:
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: "Allow"
+              Action: 
+                - "cognito-idp:DescribeUserPool"
+                - "cognito-idp:CreateUserPoolClient"
+                - "cognito-idp:DeleteUserPoolClient"
+                - "cognito-idp:DescribeUserPoolClient"
+                - "cognito-idp:AdminInitiateAuth"
+                - "cognito-idp:AdminUserGlobalSignOut"
+                - "cognito-idp:ListUserPoolClients"
+                - "cognito-identity:DescribeIdentityPool"
+                - "cognito-identity:UpdateIdentityPool"
+                - "cognito-identity:SetIdentityPoolRoles"
+                - "cognito-identity:GetIdentityPoolRoles"
+                - "iam:GetRole"
+                - "iam:PassRole"
+                - "iam:CreateRole"
+                - "iam:AttachRolePolicy"
+                - "ec2:DescribeVpcs"
+                - "cognito-identity:ListIdentityPools"
+                - "cognito-idp:ListUserPools"
+              Resource: '*'
+
+    CognitoAccessForAmazonESRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: 
+                - "sts:AssumeRole"
+              Principal: 
+                Service:
+                  - "es.amazonaws.com"
+        ManagedPolicyArns: 
+          - !Ref CognitoAccessForAmazonESPolicy
+
+    RoleAttachment:
+      Type: AWS::Cognito::IdentityPoolRoleAttachment
+      Properties:
+        IdentityPoolId: !Ref IdentityPool
+        Roles:
+          authenticated: !GetAtt AuthenticatedRole.Arn
+
+
+    UserPoolClientFirst:
+      Type: 'AWS::Cognito::UserPoolClient'
+      Properties:
+        ClientName: UserPoolTestClient
+        GenerateSecret: true
+        UserPoolId: !Ref UserPool
+
+    ##Cloudformation Custom Resources - start
+    UserPoolClientFirstSettings:
+      Type: 'Custom::CognitoUserPoolClientSettings'
+      DependsOn: 
+        - "CFUserPoolClientSettingsLambdaFunction"
+        - ElasticSearchInstance
+
+      Properties:
+        ServiceToken: "arn:aws:lambda:${file(./aws_params.yml):region}:${file(./aws_params.yml):ACCOUNT_ID}:function:${self:service}-${self:custom.stage}-CFUserPoolClientSettings"
+        UserPoolId: !Ref UserPool
+        UserPoolClientId: !Ref UserPoolClientFirst
+        SupportedIdentityProviders:
+          - COGNITO
+        AllowedOAuthFlowsUserPoolClient: true
+        AllowedOAuthFlows:
+          - code
+        AllowedOAuthScopes:
+          - openid
+
+    UserPoolTestDomain:
+      Type: 'Custom::CognitoUserPoolDomain'
+      DependsOn: "CFUserPoolDomainLambdaFunction"
+      Properties:
+        ServiceToken: "arn:aws:lambda:${file(./aws_params.yml):region}:${file(./aws_params.yml):ACCOUNT_ID}:function:${self:service}-${self:custom.stage}-CFUserPoolDomain"
+        UserPoolId: !Ref UserPool
+        Domain: ${file(./aws_params.yml):USER_POOL_DOMAIN}
+
+    ElasticSearchDomainConfig:
+      Type: 'Custom::ElasticSearchDomainConfig'
+      DependsOn: "CFESDomainConfigLambdaFunction"
+      Properties:
+        ServiceToken: "arn:aws:lambda:${file(./aws_params.yml):region}:${file(./aws_params.yml):ACCOUNT_ID}:function:${self:service}-${self:custom.stage}-CFESDomainConfig"
+        UserPoolId: !Ref UserPool
+        IdentityPoolId: !Ref IdentityPool
+        RoleArn: !GetAtt CognitoAccessForAmazonESRole.Arn
+
+    ##Cloudformation Custom Resources - end
+
+    # - ${file(resources/es-cognito-setup.yml)}
+    # - ${file(resources/dynamodb-table.yml)}
+
+custom:
+  defaultRegion: us-east-1
+  region: ${opt:region, self:custom.defaultRegion}
+  stage: ${opt:stage, self:provider.stage}
+  tableName: ${self:custom.stage}-assignments
+  tableThroughputs:
+    prod: 5
+    default: 1
+  tableThroughput: ${self:custom.tableThroughputs.${self:custom.stage}, self:custom.tableThroughputs.default}

@@ -1,0 +1,43 @@
+{
+    "Records": [
+        {
+            "eventID": "7bb7e5c63427db3d864320636f0f2b13",
+            "eventName": "INSERT",
+            "eventVersion": "1.1",
+            "eventSource": "aws:dynamodb",
+            "awsRegion": "ap-northeast-1",
+            "dynamodb": {
+                "ApproximateCreationDateTime": 1555815442,
+                "Keys": {
+                    "assignmentId": {
+                        "S": "2ed78b20-63e1-11e9-90ec-4960d11d9511"
+                    },
+                    "userId": {
+                        "S": "2ed76410-63e1-11e9-90ec-4960d11d9511"
+                    }
+                },
+                "NewImage": {
+                    "createdAt": {
+                        "N": "1555815441618"
+                    },
+                    "assignmentId": {
+                        "S": "2ed78b20-63e1-11e9-90ec-4960d11d9511"
+                    },
+                    "userId": {
+                        "S": "2ed76410-63e1-11e9-90ec-4960d11d9511"
+                    },
+                    "lat": {
+                        "N": "12.001"
+                    },
+                    "long": {
+                        "N": "13.003"
+                    }
+                },
+                "SequenceNumber": "100000000009386231761",
+                "SizeBytes": 212,
+                "StreamViewType": "NEW_IMAGE"
+            },
+            "eventSourceARN": "arn:aws:dynamodb:ap-northeast-1:365256245028:table/dev-assignments/stream/2019-04-21T01:27:13.020"
+        }
+    ]
+}
